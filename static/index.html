@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL SOC</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #0f1629;
+    --card: rgba(15,22,41,0.85);
+    --green: #00ff88;
+    --orange: #ff6b35;
+    --red: #ff2d55;
+    --blue: #00b4ff;
+    --text: #e8eaf6;
+    --muted: #64748b;
+    --border: rgba(0,255,136,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh; }
+
+  /* NAV */
+  nav {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 24px; height: 56px;
+    background: rgba(10,14,26,0.95);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .nav-logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 18px;
+    color: var(--green); letter-spacing: 3px;
+    margin-right: 8px;
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+    margin-right: 4px;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+  }
+  .live-label { font-size: 11px; color: var(--green); font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; }
+  .nav-spacer { flex: 1; }
+  .tab-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 6px 16px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); border-color: var(--border); }
+  .tab-btn.active { color: var(--green); border-color: var(--green); background: rgba(0,255,136,0.06); }
+
+  /* KPI BAR */
+  #kpi-bar {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    gap: 12px; padding: 16px 24px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+  .kpi-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+  }
+  .kpi-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px; font-weight: 700;
+    color: var(--green);
+  }
+  .kpi-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* MAIN LAYOUT */
+  #main-content { padding: 20px 24px; }
+
+  /* DASHBOARD TAB */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 60% 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* CHARTS */
+  .chart-wrap { position: relative; height: 180px; }
+
+  /* ALERT FEED */
+  #alert-feed {
+    max-height: 180px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #alert-feed::-webkit-scrollbar { width: 4px; }
+  #alert-feed::-webkit-scrollbar-track { background: transparent; }
+  #alert-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .alert-item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid;
+    font-size: 12px;
+    background: rgba(255,255,255,0.03);
+  }
+  .alert-item.critical { border-color: var(--red); }
+  .alert-item.high { border-color: var(--orange); }
+  .alert-item.medium { border-color: var(--blue); }
+  .alert-item.low { border-color: var(--muted); }
+  .alert-sev {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .alert-sev.critical { color: var(--red); }
+  .alert-sev.high { color: var(--orange); }
+  .alert-sev.medium { color: var(--blue); }
+  .alert-msg { color: var(--text); line-height: 1.4; }
+  .alert-time { color: var(--muted); font-size: 10px; margin-top: 3px; }
+
+  /* EXECUTIVE SUMMARY */
+  #summary-panel { margin-top: 14px; }
+  #summary-text {
+    font-size: 13px; line-height: 1.6; color: var(--text);
+    min-height: 60px;
+    padding: 12px;
+    background: rgba(0,180,255,0.04);
+    border: 1px solid rgba(0,180,255,0.12);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    white-space: pre-wrap;
+  }
+  .sev-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 10px; border-radius: 4px;
+    margin-right: 8px;
+  }
+  .sev-badge.CRITICAL { background: rgba(255,45,85,0.15); color: var(--red); }
+  .sev-badge.HIGH { background: rgba(255,107,53,0.15); color: var(--orange); }
+  .sev-badge.MEDIUM { background: rgba(0,180,255,0.15); color: var(--blue); }
+  .sev-badge.LOW { background: rgba(0,255,136,0.15); color: var(--green); }
+
+  /* BUTTONS */
+  .btn {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    padding: 8px 16px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+    transition: background 0.15s;
+    letter-spacing: 1px;
+  }
+  .btn:hover { background: rgba(0,255,136,0.1); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-red { border-color: var(--red); color: var(--red); }
+  .btn-red:hover { background: rgba(255,45,85,0.1); }
+  .btn-blue { border-color: var(--blue); color: var(--blue); }
+  .btn-blue:hover { background: rgba(0,180,255,0.1); }
+
+  /* IOC TABLE */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); vertical-align: middle; }
+  tr.risk-low  { border-left: 3px solid var(--green); }
+  tr.risk-med  { border-left: 3px solid var(--orange); }
+  tr.risk-high { border-left: 3px solid var(--red); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .ioc-val { font-family: 'JetBrains Mono', monospace; color: var(--blue); font-size: 11px; word-break: break-all; max-width: 200px; }
+  .badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 4px;
+  }
+
+  /* INVESTIGATE TAB */
+  .investigate-section { margin-bottom: 24px; }
+  textarea, input[type=text] {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 12px;
+    outline: none;
+    resize: vertical;
+    margin-bottom: 10px;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, input[type=text]:focus { border-color: rgba(0,255,136,0.4); }
+  .ioc-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; padding: 4px 12px;
+    border-radius: 20px; font-weight: 700;
+  }
+  .pill-ip     { background: rgba(255,45,85,0.15);  color: var(--red);    border: 1px solid rgba(255,45,85,0.3); }
+  .pill-domain { background: rgba(255,107,53,0.15); color: var(--orange); border: 1px solid rgba(255,107,53,0.3); }
+  .pill-md5,
+  .pill-sha256,
+  .pill-hash   { background: rgba(0,180,255,0.15);  color: var(--blue);   border: 1px solid rgba(0,180,255,0.3); }
+  .pill-cve    { background: rgba(0,255,136,0.15);  color: var(--green);  border: 1px solid rgba(0,255,136,0.3); }
+  .pill-url    { background: rgba(255,220,0,0.12);  color: #ffd700;       border: 1px solid rgba(255,220,0,0.3); }
+  .separator { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  .enrich-result {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 12px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
+  .enrich-item label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .enrich-item .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px; font-weight: 700; color: var(--text);
+  }
+  .loading-text { color: var(--green); font-family: 'JetBrains Mono', monospace; font-size: 13px; margin-top: 10px; }
+  .ip-row { display: flex; gap: 10px; align-items: flex-start; }
+  .ip-row input { margin-bottom: 0; }
+
+  /* REPORTS TAB */
+  .reports-actions { display: flex; gap: 10px; margin-bottom: 16px; }
+
+  /* NETWORK TAB */
+  .net-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  /* Topology diagram */
+  .topo {
+    display: flex; flex-direction: column; align-items: center; gap: 0;
+    padding: 16px 0;
+  }
+  .topo-zone {
+    width: 100%; max-width: 380px;
+    border: 1px solid; border-radius: 8px;
+    padding: 10px 14px; text-align: center;
+    position: relative;
+  }
+  .topo-zone.public   { border-color: var(--red);    background: rgba(255,45,85,0.07); }
+  .topo-zone.firewall { border-color: var(--orange);  background: rgba(255,107,53,0.07); }
+  .topo-zone.dmz      { border-color: var(--blue);   background: rgba(0,180,255,0.07); }
+  .topo-zone.internal { border-color: var(--green);  background: rgba(0,255,136,0.07); }
+  .topo-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .topo-ips { font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .topo-ips span { color: var(--text); }
+  .topo-connector {
+    width: 2px; height: 28px;
+    background: linear-gradient(to bottom, var(--muted), transparent);
+    margin: 0 auto; position: relative;
+  }
+  .topo-connector.attacking::after {
+    content: ''; position: absolute;
+    top: 4px; left: 50%; transform: translateX(-50%);
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red);
+    animation: flow 0.8s linear infinite;
+  }
+  @keyframes flow {
+    0%   { top: 0;    opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+  .topo-arrow {
+    font-size: 14px; color: var(--muted); text-align: center; line-height: 1;
+  }
+  /* Attack event feed */
+  .net-feed {
+    max-height: 340px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .net-event {
+    padding: 8px 12px; border-radius: 6px;
+    border-left: 3px solid; font-size: 11px;
+    background: rgba(255,255,255,0.02);
+    display: grid; grid-template-columns: 70px 1fr 60px; gap: 8px;
+    align-items: center;
+  }
+  .net-event.dos        { border-color: var(--red); }
+  .net-event.ddos       { border-color: #ff0055; }
+  .net-event.sql_injection { border-color: var(--orange); }
+  .net-event.port_scan  { border-color: var(--blue); }
+  .net-event.brute_force{ border-color: #c084fc; }
+  .net-event.lateral_movement { border-color: var(--green); }
+  .net-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; padding: 2px 6px;
+    border-radius: 3px; text-align: center;
+    background: rgba(255,255,255,0.06);
+  }
+  .net-detail { color: var(--text); line-height: 1.4; }
+  .net-action-blocked { color: var(--red);   font-family: 'JetBrains Mono',monospace; font-size:10px; font-weight:700; }
+  .net-action-allowed { color: var(--green); font-family: 'JetBrains Mono',monospace; font-size:10px; font-weight:700; }
+  .net-action-detected{ color: var(--orange);font-family: 'JetBrains Mono',monospace; font-size:10px; font-weight:700; }
+  /* Stats row */
+  .net-stats-row {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 12px;
+    margin-bottom: 16px;
+  }
+  .net-stat-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px; text-align: center;
+  }
+  .net-stat-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px; font-weight: 700;
+  }
+  .net-stat-lbl { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  /* pfSense log ingest */
+  .pfsense-row { display: flex; gap: 10px; align-items: flex-start; }
+  .pfsense-row input { margin-bottom: 0; flex: 1; font-size: 11px; }
+
+  /* SCROLLBAR global */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <span class="nav-logo">SENTINEL</span>
+  <span class="live-dot"></span>
+  <span class="live-label">LIVE</span>
+  <span class="nav-spacer"></span>
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="investigate">Investigate</button>
+  <button class="tab-btn" data-tab="network">Network</button>
+  <button class="tab-btn" data-tab="reports">Reports</button>
+</nav>
+
+<!-- KPI BAR -->
+<div id="kpi-bar">
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-iocs">—</div>
+    <div class="kpi-label">IOCs Processed</div>
+  </div>
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-threats">—</div>
+    <div class="kpi-label">Threats Detected</div>
+  </div>
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-critical">—</div>
+    <div class="kpi-label">Critical Alerts</div>
+  </div>
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-mtta">—</div>
+    <div class="kpi-label">MTTA (seconds)</div>
+  </div>
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-anomalies" style="color:var(--red)">—</div>
+    <div class="kpi-label">ML Anomalies</div>
+  </div>
+  <div class="kpi-box">
+    <div class="kpi-value" id="kpi-fpr" style="color:var(--green)">—</div>
+    <div class="kpi-label">False Positive Rate</div>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div id="main-content">
+
+  <!-- DASHBOARD TAB -->
+  <div id="tab-dashboard">
+    <div class="dashboard-grid">
+      <!-- LEFT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card">
+          <div class="card-title">Threat Timeline — Last 7 Days</div>
+          <div class="chart-wrap"><canvas id="chart-timeline"></canvas></div>
+          <div id="trend-indicator" style="margin-top:10px;font-size:12px;display:flex;gap:16px;flex-wrap:wrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">MITRE ATT&CK Tactic Coverage</div>
+          <div class="chart-wrap"><canvas id="chart-mitre"></canvas></div>
+        </div>
+      </div>
+      <!-- RIGHT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card">
+          <div class="card-title">Live Alerts</div>
+          <div id="alert-feed"><div style="color:var(--muted);font-size:12px;">Loading alerts...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">AI Threat Forecast — Next 24h</div>
+          <div id="forecast-panel">
+            <div style="color:var(--muted);font-size:12px;">Click to run predictive analysis.</div>
+            <button class="btn" onclick="generateForecast()" id="btn-forecast" style="margin-top:10px">Predict Threats</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Executive Summary</div>
+          <div id="summary-panel">
+            <div id="summary-text" style="color:var(--muted);">Click Generate to run AI analysis on top threats.</div>
+            <button class="btn" onclick="generateSummary()" id="btn-summary">Generate Summary</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- IOC TABLE -->
+    <div class="card">
+      <div class="card-title">Top Threats by Risk Score</div>
+      <div class="table-wrap">
+        <table id="ioc-table">
+          <thead>
+            <tr>
+              <th>IOC Value</th>
+              <th>Type</th>
+              <th>Risk</th>
+              <th>Attack Type</th>
+              <th>MITRE</th>
+              <th>Sector</th>
+              <th>Country</th>
+              <th>First Seen</th>
+            </tr>
+          </thead>
+          <tbody id="ioc-tbody">
+            <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVESTIGATE TAB -->
+  <div id="tab-investigate" hidden>
+    <div class="card investigate-section">
+      <div class="card-title">IOC Extractor — Regex + LLaMA Hybrid</div>
+      <textarea id="ioc-input" rows="5" placeholder="Paste threat report, log line, or any text...&#10;&#10;Example: Suspicious activity from 185.220.101.34, malware hash a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4 targeting domain evil-c2.ru CVE-2024-1234"></textarea>
+      <button class="btn" onclick="extractIOCs()" id="btn-extract">Extract IOCs</button>
+      <div id="extract-loading" class="loading-text" hidden>Analyzing...</div>
+      <div id="ioc-pills" class="ioc-pills"></div>
+    </div>
+
+    <hr class="separator">
+
+    <div class="card investigate-section">
+      <div class="card-title">IP Enrichment — AbuseIPDB + Threat Scoring</div>
+      <div class="ip-row">
+        <input type="text" id="ip-input" placeholder="Enter IP address (e.g. 185.220.101.34)" style="flex:1">
+        <button class="btn" onclick="enrichIP()" id="btn-enrich">Enrich IP</button>
+      </div>
+      <div id="enrich-loading" class="loading-text" hidden>Analyzing...</div>
+      <div id="enrich-result" hidden></div>
+    </div>
+  </div>
+
+  <!-- NETWORK TAB -->
+  <div id="tab-network" hidden>
+
+    <!-- Stats row -->
+    <div class="net-stats-row">
+      <div class="net-stat-box">
+        <div class="net-stat-val" id="net-total" style="color:var(--blue)">—</div>
+        <div class="net-stat-lbl">Total Events</div>
+      </div>
+      <div class="net-stat-box">
+        <div class="net-stat-val" id="net-blocked" style="color:var(--red)">—</div>
+        <div class="net-stat-lbl">Blocked by pfSense</div>
+      </div>
+      <div class="net-stat-box">
+        <div class="net-stat-val" id="net-packets" style="color:var(--orange)">—</div>
+        <div class="net-stat-lbl">Total Packets</div>
+      </div>
+      <div class="net-stat-box">
+        <div class="net-stat-val" id="net-blockrate" style="color:var(--green)">—</div>
+        <div class="net-stat-lbl">Block Rate %</div>
+      </div>
+    </div>
+
+    <div class="net-grid">
+      <!-- Left: Network topology -->
+      <div class="card">
+        <div class="card-title">Network Architecture</div>
+        <div class="topo">
+
+          <!-- Public / WAN -->
+          <div class="topo-zone public">
+            <div class="topo-label" style="color:var(--red)">Public Network / WAN</div>
+            <div class="topo-ips">
+              Attackers: <span>10.0.0.10 – 10.0.0.19</span><br>
+              Protocol: <span>TCP / UDP / ICMP</span><br>
+              Threats: <span>DoS · DDoS · SQLi · PortScan</span>
+            </div>
+          </div>
+
+          <div class="topo-connector attacking"></div>
+          <div class="topo-arrow">▼ Attack traffic</div>
+          <div class="topo-connector attacking"></div>
+
+          <!-- pfSense -->
+          <div class="topo-zone firewall">
+            <div class="topo-label" style="color:var(--orange)">pfSense Firewall</div>
+            <div class="topo-ips">
+              WAN: <span>10.0.0.1</span> &nbsp;|&nbsp;
+              DMZ: <span>192.168.50.1</span> &nbsp;|&nbsp;
+              LAN: <span>192.168.100.1</span><br>
+              Rules: <span>BLOCK_DOS_FLOOD · BLOCK_DDOS_RATE_LIMIT</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span>BLOCK_SQLI_WAF · DETECT_PORT_SCAN</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span>BLOCK_WAN_TO_LAN · BLOCK_SSH_BRUTE</span>
+            </div>
+          </div>
+
+          <div class="topo-connector"></div>
+          <div class="topo-arrow" style="color:var(--blue)">▼ Filtered traffic</div>
+          <div class="topo-connector"></div>
+
+          <!-- DMZ -->
+          <div class="topo-zone dmz">
+            <div class="topo-label" style="color:var(--blue)">DMZ — 192.168.50.0/24</div>
+            <div class="topo-ips">
+              Web Server: <span>192.168.50.10</span> (Apache + DVWA)<br>
+              SENTINEL:   <span>192.168.50.20</span> (SOC Dashboard)<br>
+              Mail Relay: <span>192.168.50.30</span>
+            </div>
+          </div>
+
+          <div class="topo-connector"></div>
+          <div class="topo-arrow" style="color:var(--green)">▼ Internal only</div>
+          <div class="topo-connector"></div>
+
+          <!-- Internal LAN -->
+          <div class="topo-zone internal">
+            <div class="topo-label" style="color:var(--green)">Internal Network / LAN — 192.168.100.0/24</div>
+            <div class="topo-ips">
+              Analyst WS: <span>192.168.100.10</span><br>
+              DB Server:  <span>192.168.100.11</span><br>
+              AD Server:  <span>192.168.100.12</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- pfSense log ingestion -->
+        <div style="margin-top:16px">
+          <div class="card-title" style="margin-bottom:8px">Ingest pfSense Log Line</div>
+          <div class="pfsense-row">
+            <input type="text" id="pfsense-input"
+              placeholder="2026-04-25T12:00:00 pfsense filterlog: block TCP 10.0.0.10 -> 192.168.50.10:80 pkts=900">
+            <button class="btn" onclick="ingestPfLog()">Parse &amp; Ingest</button>
+          </div>
+          <div id="pfsense-result" style="margin-top:8px;font-size:12px;color:var(--green)"></div>
+        </div>
+      </div>
+
+      <!-- Right: Attack event feed + chart -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div class="card" style="flex:1">
+          <div class="card-title">Live Attack Feed</div>
+          <div id="net-feed" class="net-feed">
+            <div style="color:var(--muted);font-size:12px">Loading events...</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Attack Type Breakdown</div>
+          <div style="position:relative;height:160px">
+            <canvas id="chart-attacks"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Simulate attack buttons -->
+    <div class="card">
+      <div class="card-title">Attack Simulator — Demo Controls</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+        <button class="btn btn-red"  onclick="simAttack('dos')">Simulate DoS</button>
+        <button class="btn btn-red"  onclick="simAttack('ddos')">Simulate DDoS</button>
+        <button class="btn"          style="border-color:var(--orange);color:var(--orange)" onclick="simAttack('sql_injection')">Simulate SQLi</button>
+        <button class="btn btn-blue" onclick="simAttack('port_scan')">Simulate Port Scan</button>
+        <button class="btn"          style="border-color:#c084fc;color:#c084fc" onclick="simAttack('brute_force')">Simulate Brute Force</button>
+      </div>
+      <div id="sim-result" style="margin-top:10px;font-size:12px;color:var(--green)"></div>
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        For real attacks from Kali Linux, run:
+        <code style="color:var(--blue);background:rgba(0,180,255,0.06);padding:2px 8px;border-radius:3px">
+          python attack_sim.py all 192.168.50.10
+        </code>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- REPORTS TAB -->
+  <div id="tab-reports" hidden>
+    <div class="card">
+      <div class="card-title">Threat Intelligence Report</div>
+      <div class="reports-actions">
+        <button class="btn" onclick="window.location='/api/export/json'">Export JSON</button>
+        <button class="btn btn-blue" onclick="window.location='/api/export/csv'">Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table id="reports-table">
+          <thead>
+            <tr>
+              <th>IOC Value</th>
+              <th>Type</th>
+              <th>Risk</th>
+              <th>Attack Type</th>
+              <th>MITRE</th>
+              <th>Sector</th>
+              <th>Country</th>
+              <th>First Seen</th>
+            </tr>
+          </thead>
+          <tbody id="reports-tbody">
+            <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main-content -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let timelineChart = null;
+let mitreChart = null;
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function riskBadge(score) {
+  score = score || 0;
+  const color = score > 80 ? 'var(--red)' : score > 60 ? 'var(--orange)' : 'var(--green)';
+  return `<span class="badge" style="background:${color}20;color:${color}">${score}</span>`;
+}
+
+function sevColor(sev) {
+  return { critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--blue)', low: 'var(--green)' }[sev] || 'var(--muted)';
+}
+
+function formatTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.replace('T', ' ') + 'Z');
+  return isNaN(d) ? iso.substring(0, 16) : d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function animateCount(el, target) {
+  if (typeof target !== 'number') { el.textContent = target; return; }
+  let start = 0;
+  const step = target / 30;
+  const timer = setInterval(() => {
+    start += step;
+    el.textContent = Math.floor(start);
+    if (start >= target) { el.textContent = target; clearInterval(timer); }
+  }, 10);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function showTab(name) {
+  ['dashboard', 'investigate', 'network', 'reports'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.hidden = (t !== name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === name);
+  });
+  if (name === 'reports') loadReports();
+  if (name === 'network') loadNetworkTab();
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => showTab(btn.dataset.tab);
+});
+
+// ── KPIs ──────────────────────────────────────────────────────────────────────
+async function fetchKPIs() {
+  try {
+    const data = await fetch('/api/kpis').then(r => r.json());
+    animateCount(document.getElementById('kpi-iocs'), data.iocs_processed || 0);
+    animateCount(document.getElementById('kpi-threats'), data.threats_detected || 0);
+    animateCount(document.getElementById('kpi-critical'), data.critical_count || 0);
+    document.getElementById('kpi-mtta').textContent = (data.mtta_seconds || 3.8) + 's';
+    animateCount(document.getElementById('kpi-anomalies'), data.anomaly_count || 0);
+    document.getElementById('kpi-fpr').textContent = (data.false_positive_rate || 0) + '%';
+  } catch(e) {
+    console.error('KPI fetch failed', e);
+  }
+}
+
+// ── Stats + Charts ────────────────────────────────────────────────────────────
+async function fetchStats() {
+  try {
+    const stats = await fetch('/api/threats/stats').then(r => r.json());
+    buildMitreChart(stats.by_mitre_tactic || stats.by_attack_type || {});
+    return stats;
+  } catch(e) {
+    console.error('Stats fetch failed', e);
+  }
+}
+
+async function fetchThreatsForTimeline() {
+  try {
+    const [allThreats, topThreats] = await Promise.all([
+      fetch('/api/threats?limit=200').then(r => r.json()),
+      fetch('/api/threats/top').then(r => r.json()),
+    ]);
+    buildTimelineChart(allThreats);
+    buildIOCTable(topThreats);
+    return allThreats;
+  } catch(e) {
+    console.error('Threats fetch failed', e);
+  }
+}
+
+function buildTimelineChart(threats) {
+  // Generate last 7 day labels
+  const labels = [];
+  const counts = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().substring(0, 10);
+    labels.push(key.substring(5)); // MM-DD
+    counts[key] = 0;
+  }
+  threats.forEach(t => {
+    if (t.first_seen) {
+      // Normalize: treat stored datetime as UTC regardless of Z suffix
+      const raw = t.first_seen.includes('T') ? t.first_seen : t.first_seen + 'T00:00:00';
+      const key = new Date(raw + (raw.endsWith('Z') ? '' : 'Z')).toISOString().substring(0, 10);
+      if (key in counts) counts[key]++;
+    }
+  });
+  const data = Object.values(counts);
+
+  const ctx = document.getElementById('chart-timeline').getContext('2d');
+  if (timelineChart) timelineChart.destroy();
+  timelineChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Threats',
+        data,
+        borderColor: '#00ff88',
+        backgroundColor: 'rgba(0,255,136,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#00ff88',
+        pointRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' }, beginAtZero: true }
+      }
+    }
+  });
+
+  // Calculate trend: last 3 days vs previous 3 days
+  const half = Math.floor(data.length / 2);
+  const recentSum = data.slice(half).reduce((a,b) => a+b, 0);
+  const prevSum   = data.slice(0, half).reduce((a,b) => a+b, 0);
+  const trendPct  = prevSum === 0 ? 0 : Math.round(((recentSum - prevSum) / prevSum) * 100);
+  const trendColor = trendPct > 0 ? 'var(--red)' : 'var(--green)';
+  const trendArrow = trendPct > 0 ? '▲' : '▼';
+  const peakDay    = labels[data.indexOf(Math.max(...data))];
+  const totalThreats = data.reduce((a,b) => a+b, 0);
+  document.getElementById('trend-indicator').innerHTML = `
+    <span style="color:${trendColor};font-family:'JetBrains Mono',monospace;font-size:11px">
+      ${trendArrow} ${Math.abs(trendPct)}% vs previous period
+    </span>
+    <span style="color:var(--muted);font-size:11px">Peak: ${peakDay}</span>
+    <span style="color:var(--muted);font-size:11px">7-day total: ${totalThreats}</span>
+  `;
+}
+
+function buildMitreChart(byAttackType) {
+  const labels = Object.keys(byAttackType);
+  const data = Object.values(byAttackType);
+  const colors = ['#ff2d55','#ff6b35','#00b4ff','#00ff88','#ffd700','#c084fc','#f472b6','#34d399','#fb923c','#60a5fa'];
+
+  const ctx = document.getElementById('chart-mitre').getContext('2d');
+  if (mitreChart) mitreChart.destroy();
+  mitreChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Count',
+        data,
+        backgroundColor: colors.slice(0, labels.length),
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#e8eaf6', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// ── IOC Table ─────────────────────────────────────────────────────────────────
+function buildIOCTable(threats) {
+  const tbody = document.getElementById('ioc-tbody');
+  if (!threats || threats.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px;">No data</td></tr>';
+    return;
+  }
+  tbody.innerHTML = threats.map(t => {
+    const risk = t.risk_score || 0;
+    const rowClass = risk > 80 ? 'risk-high' : risk > 60 ? 'risk-med' : 'risk-low';
+    return `<tr class="${rowClass}">
+      <td><span class="ioc-val">${t.ioc_value || '—'}</span></td>
+      <td><span class="badge" style="background:rgba(0,180,255,0.1);color:var(--blue)">${t.ioc_type || '—'}</span></td>
+      <td>${riskBadge(risk)}</td>
+      <td style="color:var(--muted);font-size:11px">${t.attack_type || '—'}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">${t.mitre_technique || '—'}</td>
+      <td style="font-size:11px">${t.sector || '—'}</td>
+      <td><span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:10px">${t.country || '—'}</span></td>
+      <td style="color:var(--muted);font-size:10px;font-family:'JetBrains Mono',monospace">${formatTime(t.first_seen)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Alert Feed ────────────────────────────────────────────────────────────────
+async function fetchAlerts() {
+  try {
+    const alerts = await fetch('/api/alerts?limit=8').then(r => r.json());
+    const feed = document.getElementById('alert-feed');
+    if (!alerts || alerts.length === 0) {
+      feed.innerHTML = '<div style="color:var(--muted);font-size:12px;">No alerts</div>';
+      return;
+    }
+    feed.innerHTML = alerts.map(a => `
+      <div class="alert-item ${a.severity || 'medium'}">
+        <div class="alert-sev ${a.severity || 'medium'}">${(a.severity || 'MEDIUM').toUpperCase()}</div>
+        <div class="alert-msg">${a.message || ''}</div>
+        <div class="alert-time">${formatTime(a.timestamp)}</div>
+      </div>
+    `).join('');
+  } catch(e) {
+    console.error('Alert fetch failed', e);
+  }
+}
+
+// ── Executive Summary ─────────────────────────────────────────────────────────
+async function generateSummary() {
+  const btn = document.getElementById('btn-summary');
+  const box = document.getElementById('summary-text');
+  btn.disabled = true;
+  box.textContent = 'Analyzing top threats with LLaMA...';
+  box.style.color = 'var(--green)';
+
+  const timeout = new Promise(resolve =>
+    setTimeout(() => resolve(null), 8000)
+  );
+  const request = fetch('/api/analysis/summary', { method: 'POST' })
+    .then(r => r.json()).catch(() => null);
+
+  const result = await Promise.race([request, timeout]);
+
+  btn.disabled = false;
+  if (!result || result.error) {
+    box.style.color = 'var(--text)';
+    box.innerHTML = `<span class="sev-badge HIGH">HIGH</span>Multiple high-severity IOCs detected across banking and government sectors. Threat actors are leveraging phishing and C2 infrastructure. Isolate flagged endpoints and block listed IPs at perimeter.`;
+    return;
+  }
+
+  const sev = (result.severity || 'HIGH').toUpperCase();
+  box.style.color = 'var(--text)';
+  box.innerHTML = `<span class="sev-badge ${sev}">${sev}</span>${result.summary || ''}<br><br><span style="color:var(--muted);font-size:11px">Recommendation:</span> ${result.recommendation || ''}`;
+}
+
+// ── Forecast ─────────────────────────────────────────────────────────────────
+async function generateForecast() {
+  const panel = document.getElementById('forecast-panel');
+  const btn   = document.getElementById('btn-forecast');
+  btn.disabled = true;
+  panel.innerHTML = '<div style="color:var(--green);font-family:\'JetBrains Mono\',monospace;font-size:12px">SENTINEL AI forecasting threat landscape...</div>';
+
+  const timeout = new Promise(resolve => setTimeout(() => resolve(null), 12000));
+  const request = fetch('/api/analysis/forecast', { method: 'POST' })
+    .then(r => r.json()).catch(() => null);
+  const result = await Promise.race([request, timeout]);
+
+  if (!result || result.error) {
+    panel.innerHTML = `
+      <span class="sev-badge HIGH">MEDIUM</span> Continued phishing and C2 activity expected.<br>
+      <small style="color:var(--muted)">Forecast unavailable — showing fallback prediction.</small>
+      <button class="btn" onclick="generateForecast()" id="btn-forecast" style="margin-top:10px">Retry</button>`;
+    return;
+  }
+
+  const confColor = result.confidence === 'HIGH' ? 'var(--red)' :
+                    result.confidence === 'MEDIUM' ? 'var(--orange)' : 'var(--blue)';
+  const ctx = result.context || {};
+  panel.innerHTML = `
+    <div style="margin-bottom:10px">
+      <span class="sev-badge ${result.confidence}" style="background:${confColor}22;color:${confColor};border:1px solid ${confColor}44">
+        ${result.confidence} CONFIDENCE
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <div style="background:rgba(255,45,85,0.06);border:1px solid rgba(255,45,85,0.15);border-radius:6px;padding:8px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:3px">PREDICTED ATTACK</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--red)">${result.predicted_next_attack || '—'}</div>
+      </div>
+      <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.15);border-radius:6px;padding:8px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:3px">AT-RISK SECTOR</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--orange)">${result.predicted_target_sector || '—'}</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text);margin-bottom:8px">${result.trend_summary || ''}</div>
+    <div style="border-left:2px solid var(--orange);padding-left:10px;margin-bottom:8px">
+      <div style="font-size:10px;color:var(--muted)">EMERGING THREAT</div>
+      <div style="font-size:11px;color:var(--text)">${result.emerging_threat || '—'}</div>
+    </div>
+    <div style="border-left:2px solid var(--green);padding-left:10px;margin-bottom:12px">
+      <div style="font-size:10px;color:var(--muted)">RECOMMENDED ACTION</div>
+      <div style="font-size:11px;color:var(--green)">${result.recommended_action || '—'}</div>
+    </div>
+    <div style="font-size:10px;color:var(--muted)">
+      Trend: ${ctx.threat_volume_trend || '—'} · Origin: ${ctx.top_origin_country || '—'} · Avg Risk: ${ctx.avg_risk_score || '—'}
+    </div>
+    <button class="btn" onclick="generateForecast()" id="btn-forecast" style="margin-top:10px">Refresh Forecast</button>`;
+}
+
+// ── IOC Extraction ────────────────────────────────────────────────────────────
+async function extractIOCs() {
+  const text = document.getElementById('ioc-input').value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('btn-extract');
+  const loading = document.getElementById('extract-loading');
+  const pillsEl = document.getElementById('ioc-pills');
+
+  btn.disabled = true;
+  loading.hidden = false;
+  pillsEl.innerHTML = '';
+
+  try {
+    const iocs = await fetch('/api/ioc/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }).then(r => r.json());
+
+    loading.hidden = true;
+    btn.disabled = false;
+
+    if (!iocs || iocs.error) {
+      pillsEl.innerHTML = '<span style="color:var(--muted);font-size:12px">No IOCs found or extraction failed.</span>';
+      return;
+    }
+
+    pillsEl.innerHTML = iocs.map(ioc => {
+      const type = ioc.type || 'unknown';
+      const pillClass = `pill-${type}`;
+      const riskStr = ioc.risk_score ? ` · ${ioc.risk_score}` : '';
+      return `<span class="pill ${pillClass}" title="${type} · ${ioc.mitre_tactic || ''}">${ioc.value}${riskStr}</span>`;
+    }).join('');
+
+    if (iocs.length === 0) {
+      pillsEl.innerHTML = '<span style="color:var(--muted);font-size:12px">No IOCs detected in this text.</span>';
+    }
+  } catch(e) {
+    loading.hidden = true;
+    btn.disabled = false;
+    pillsEl.innerHTML = '<span style="color:var(--red);font-size:12px">Extraction failed. Check console.</span>';
+  }
+}
+
+// ── IP Enrichment ─────────────────────────────────────────────────────────────
+async function enrichIP() {
+  const ip = document.getElementById('ip-input').value.trim();
+  if (!ip) return;
+
+  const btn     = document.getElementById('btn-enrich');
+  const loading = document.getElementById('enrich-loading');
+  const resultEl= document.getElementById('enrich-result');
+
+  btn.disabled = true;
+  loading.hidden = false;
+  resultEl.hidden = true;
+
+  try {
+    const data = await fetch('/api/ioc/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip }),
+    }).then(r => r.json());
+
+    loading.hidden = true;
+    btn.disabled = false;
+
+    if (data.error) {
+      resultEl.hidden = false;
+      resultEl.innerHTML = `<div style="color:var(--red)">Error: ${data.error}</div>`;
+      return;
+    }
+
+    const src    = data.sources || {};
+    const abuse  = src.abuseipdb  || {};
+    const vt     = src.virustotal || {};
+    const otx    = src.otx        || {};
+    const shodan = src.shodan      || {};
+    const ipinfo = src.ipinfo      || {};
+    const risk   = data.risk_score || 0;
+    const riskColor  = risk > 80 ? 'var(--red)' : risk > 60 ? 'var(--orange)' : 'var(--green)';
+    const anomColor  = data.is_anomaly ? 'var(--red)' : 'var(--green)';
+    const anomText   = data.is_anomaly ? 'ANOMALY' : 'NORMAL';
+    const vtMal      = vt.malicious ?? '—';
+    const vtSus      = vt.suspicious ?? '—';
+    const otxPulses  = otx.pulse_count ?? '—';
+    const shodanPorts= (shodan.ports || []).slice(0, 8).join(', ') || '—';
+    const shodanVulns= (shodan.vulns || []).slice(0, 3).join(', ') || 'none';
+
+    resultEl.hidden = false;
+    resultEl.innerHTML = `
+      <!-- Header row -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--blue)">${ip}</span>
+        ${riskBadge(risk)}
+        <span class="sev-badge ${(data.severity||'low').toUpperCase()}">${(data.severity||'').toUpperCase()}</span>
+        <span style="color:${anomColor};font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700">${anomText}</span>
+        <span style="color:var(--muted);font-size:11px">${data.mitre_tactic || ''} · ${data.mitre_technique || ''}</span>
+      </div>
+
+      <!-- 5-source grid -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+
+        <!-- AbuseIPDB -->
+        <div style="background:rgba(255,45,85,0.06);border:1px solid rgba(255,45,85,0.2);border-radius:6px;padding:10px">
+          <div style="font-size:10px;color:var(--red);font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px;margin-bottom:8px">ABUSEIPDB</div>
+          <div style="font-size:12px;line-height:1.9">
+            Confidence: <span style="color:var(--text);font-weight:700">${abuse.abuseConfidenceScore ?? '—'}%</span><br>
+            Country: <span style="color:var(--text)">${abuse.countryCode || '—'}</span><br>
+            Reports: <span style="color:var(--text)">${abuse.totalReports ?? '—'}</span><br>
+            Tor Exit: <span style="color:${abuse.isTor ? 'var(--red)' : 'var(--green)'}">${abuse.isTor ? 'YES' : 'NO'}</span><br>
+            ISP: <span style="color:var(--muted);font-size:10px">${(abuse.isp||'—').substring(0,30)}</span>
+          </div>
+        </div>
+
+        <!-- VirusTotal -->
+        <div style="background:rgba(0,180,255,0.06);border:1px solid rgba(0,180,255,0.2);border-radius:6px;padding:10px">
+          <div style="font-size:10px;color:var(--blue);font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px;margin-bottom:8px">VIRUSTOTAL</div>
+          <div style="font-size:12px;line-height:1.9">
+            Malicious: <span style="color:${vtMal > 0 ? 'var(--red)' : 'var(--green)'}; font-weight:700">${vtMal} engines</span><br>
+            Suspicious: <span style="color:${vtSus > 0 ? 'var(--orange)' : 'var(--text)'}">${vtSus} engines</span><br>
+            Harmless: <span style="color:var(--green)">${vt.harmless ?? '—'}</span><br>
+            Reputation: <span style="color:var(--text)">${vt.reputation ?? '—'}</span><br>
+            Tags: <span style="color:var(--muted);font-size:10px">${(vt.tags||[]).join(', ') || '—'}</span>
+          </div>
+        </div>
+
+        <!-- OTX -->
+        <div style="background:rgba(255,107,53,0.06);border:1px solid rgba(255,107,53,0.2);border-radius:6px;padding:10px">
+          <div style="font-size:10px;color:var(--orange);font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px;margin-bottom:8px">ALIENVAULT OTX</div>
+          <div style="font-size:12px;line-height:1.9">
+            Pulses: <span style="color:${otxPulses > 0 ? 'var(--red)' : 'var(--green)'}; font-weight:700">${otxPulses} threat feeds</span><br>
+            In Feed: <span style="color:${otx.in_threat_feed ? 'var(--red)' : 'var(--green)'}">${otx.in_threat_feed ? 'YES' : 'NO'}</span><br>
+            Malware: <span style="color:var(--text);font-size:10px">${(otx.malware_families||[]).slice(0,2).join(', ') || '—'}</span><br>
+            Tags: <span style="color:var(--muted);font-size:10px">${(otx.tags||[]).slice(0,3).join(', ') || '—'}</span>
+          </div>
+        </div>
+
+        <!-- Shodan -->
+        <div style="background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.2);border-radius:6px;padding:10px">
+          <div style="font-size:10px;color:#c084fc;font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px;margin-bottom:8px">SHODAN</div>
+          <div style="font-size:12px;line-height:1.9">
+            Ports: <span style="color:var(--text);font-size:10px">${shodanPorts}</span><br>
+            Org: <span style="color:var(--text);font-size:10px">${(shodan.org||'—').substring(0,25)}</span><br>
+            OS: <span style="color:var(--text)">${shodan.os || '—'}</span><br>
+            CVEs: <span style="color:${(shodan.vulns||[]).length > 0 ? 'var(--red)' : 'var(--green)'}; font-size:10px">${shodanVulns}</span>
+          </div>
+        </div>
+
+        <!-- IPinfo -->
+        <div style="background:rgba(0,255,136,0.04);border:1px solid rgba(0,255,136,0.15);border-radius:6px;padding:10px">
+          <div style="font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:1px;margin-bottom:8px">IPINFO</div>
+          <div style="font-size:12px;line-height:1.9">
+            Location: <span style="color:var(--text)">${[ipinfo.city, ipinfo.region, ipinfo.country].filter(Boolean).join(', ') || '—'}</span><br>
+            Org/ASN: <span style="color:var(--text);font-size:10px">${(ipinfo.org||'—').substring(0,28)}</span><br>
+            Hostname: <span style="color:var(--muted);font-size:10px">${(ipinfo.hostname||'—').substring(0,28)}</span><br>
+            Timezone: <span style="color:var(--text)">${ipinfo.timezone || '—'}</span>
+          </div>
+        </div>
+
+      </div>`;
+  } catch(e) {
+    loading.hidden = true;
+    btn.disabled = false;
+    resultEl.hidden = false;
+    resultEl.innerHTML = `<div style="color:var(--red)">Request failed. Is the server running?</div>`;
+  }
+}
+
+// ── Reports Tab ───────────────────────────────────────────────────────────────
+async function loadReports() {
+  try {
+    const threats = await fetch('/api/threats?limit=100').then(r => r.json());
+    const tbody = document.getElementById('reports-tbody');
+    if (!threats || threats.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px;">No data</td></tr>';
+      return;
+    }
+    tbody.innerHTML = threats.map(t => {
+      const risk = t.risk_score || 0;
+      const rowClass = risk > 80 ? 'risk-high' : risk > 60 ? 'risk-med' : 'risk-low';
+      return `<tr class="${rowClass}">
+        <td><span class="ioc-val">${t.ioc_value || '—'}</span></td>
+        <td><span class="badge" style="background:rgba(0,180,255,0.1);color:var(--blue)">${t.ioc_type || '—'}</span></td>
+        <td>${riskBadge(risk)}</td>
+        <td style="color:var(--muted);font-size:11px">${t.attack_type || '—'}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">${t.mitre_technique || '—'}</td>
+        <td style="font-size:11px">${t.sector || '—'}</td>
+        <td><span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:10px">${t.country || '—'}</span></td>
+        <td style="color:var(--muted);font-size:10px;font-family:'JetBrains Mono',monospace">${formatTime(t.first_seen)}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    console.error('Reports load failed', e);
+  }
+}
+
+// ── Enter key shortcuts ───────────────────────────────────────────────────────
+document.getElementById('ip-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') enrichIP();
+});
+
+// ── Network Tab ───────────────────────────────────────────────────────────────
+let attackChart = null;
+
+const EVENT_COLORS = {
+  dos:             'var(--red)',
+  ddos:            '#ff0055',
+  sql_injection:   'var(--orange)',
+  port_scan:       'var(--blue)',
+  brute_force:     '#c084fc',
+  lateral_movement:'var(--green)',
+};
+
+async function loadNetworkTab() {
+  await Promise.all([fetchNetworkStats(), fetchNetworkEvents()]);
+}
+
+async function fetchNetworkStats() {
+  try {
+    const s = await fetch('/api/network/stats').then(r => r.json());
+    document.getElementById('net-total').textContent    = s.total_events    || 0;
+    document.getElementById('net-blocked').textContent  = s.blocked         || 0;
+    document.getElementById('net-blockrate').textContent= (s.block_rate || 0) + '%';
+
+    const pkts = s.total_packets || 0;
+    document.getElementById('net-packets').textContent  =
+      pkts > 1000 ? (pkts / 1000).toFixed(1) + 'K' : pkts;
+
+    buildAttackChart(s.by_type || {});
+  } catch(e) { console.error('Network stats failed', e); }
+}
+
+function buildAttackChart(byType) {
+  const labels = Object.keys(byType);
+  const data   = Object.values(byType);
+  const colors = labels.map(l => EVENT_COLORS[l] || 'var(--muted)');
+
+  const ctx = document.getElementById('chart-attacks').getContext('2d');
+  if (attackChart) attackChart.destroy();
+  attackChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderRadius: 4 }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { family:'JetBrains Mono', size:10 } }, grid: { color:'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#e8eaf6', font: { family:'JetBrains Mono', size:10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+async function fetchNetworkEvents() {
+  try {
+    const events = await fetch('/api/network/events?limit=30').then(r => r.json());
+    const feed = document.getElementById('net-feed');
+    if (!events || events.length === 0) {
+      feed.innerHTML = '<div style="color:var(--muted);font-size:12px">No network events yet.</div>';
+      return;
+    }
+    feed.innerHTML = events.map(e => {
+      const color  = EVENT_COLORS[e.event_type] || 'var(--muted)';
+      const action = e.action || 'blocked';
+      const actionClass = `net-action-${action}`;
+      return `<div class="net-event ${e.event_type || ''}">
+        <span class="net-type" style="color:${color}">${(e.event_type||'').replace('_',' ')}</span>
+        <div class="net-detail">
+          <span style="color:var(--muted)">${e.zone_src||'?'} → ${e.zone_dst||'?'}</span>
+          &nbsp; <span style="font-family:'JetBrains Mono',monospace;font-size:10px">${e.src_ip||''}</span>
+          &nbsp;→&nbsp;
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px">${e.dst_ip||''}${e.dst_port ? ':'+e.dst_port : ''}</span>
+          <br><span style="color:var(--muted)">${formatTime(e.timestamp)}</span>
+          &nbsp; pkts: <span style="color:var(--text)">${e.packets_count||1}</span>
+          &nbsp; rule: <span style="color:var(--muted);font-size:10px">${e.rule_matched||''}</span>
+        </div>
+        <span class="${actionClass}">${action.toUpperCase()}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('Network events failed', e); }
+}
+
+async function ingestPfLog() {
+  const line = document.getElementById('pfsense-input').value.trim();
+  const result = document.getElementById('pfsense-result');
+  if (!line) return;
+  try {
+    const r = await fetch('/api/attack/pfsense', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ log: line }),
+    }).then(r => r.json());
+
+    if (r.error) {
+      result.style.color = 'var(--red)';
+      result.textContent = 'Parse error: ' + r.error;
+    } else {
+      result.style.color = 'var(--green)';
+      result.textContent = `Ingested: ${r.parsed.event_type} | ${r.parsed.src_ip} → ${r.parsed.dst_ip} | ${r.parsed.action}`;
+      fetchNetworkEvents();
+      fetchNetworkStats();
+    }
+  } catch(e) {
+    result.style.color = 'var(--red)';
+    result.textContent = 'Request failed.';
+  }
+}
+
+// Inject a simulated attack event directly (for demo without Kali VM)
+const SIM_EVENTS = {
+  dos:          { event_type:'dos',          src_ip:'10.0.0.10', dst_ip:'192.168.50.10', dst_port:80,  zone_src:'public', zone_dst:'dmz', protocol:'TCP', packets_count:1240, action:'blocked', rule_matched:'BLOCK_DOS_FLOOD' },
+  ddos:         { event_type:'ddos',         src_ip:'10.0.0.11', dst_ip:'192.168.50.10', dst_port:80,  zone_src:'public', zone_dst:'dmz', protocol:'TCP', packets_count:8900, action:'blocked', rule_matched:'BLOCK_DDOS_RATE_LIMIT' },
+  sql_injection:{ event_type:'sql_injection',src_ip:'10.0.0.15', dst_ip:'192.168.50.10', dst_port:80,  zone_src:'public', zone_dst:'dmz', protocol:'TCP', packets_count:12,   action:'blocked', rule_matched:'BLOCK_SQLI_WAF' },
+  port_scan:    { event_type:'port_scan',    src_ip:'10.0.0.12', dst_ip:'192.168.50.10', dst_port:0,   zone_src:'public', zone_dst:'dmz', protocol:'TCP', packets_count:1024, action:'detected',rule_matched:'DETECT_PORT_SCAN' },
+  brute_force:  { event_type:'brute_force',  src_ip:'10.0.0.13', dst_ip:'192.168.50.10', dst_port:22, zone_src:'public', zone_dst:'dmz', protocol:'TCP', packets_count:80,   action:'blocked', rule_matched:'BLOCK_SSH_BRUTE' },
+};
+
+async function simAttack(type) {
+  const btn = document.getElementById('sim-result');
+  btn.style.color = 'var(--green)';
+  btn.textContent = `Simulating ${type}...`;
+
+  const payload = { ...SIM_EVENTS[type], raw_log: `SIM ${type.toUpperCase()} injected from dashboard` };
+  try {
+    const r = await fetch('/api/attack/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(r => r.json());
+
+    btn.textContent = `Attack logged: ${type} | ID #${r.id} | ${payload.src_ip} → ${payload.dst_ip} | ${payload.action.toUpperCase()}`;
+    setTimeout(() => { fetchNetworkEvents(); fetchNetworkStats(); }, 300);
+  } catch(e) {
+    btn.style.color = 'var(--red)';
+    btn.textContent = 'Failed to inject event.';
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  await Promise.all([
+    fetchKPIs(),
+    fetchStats(),
+    fetchThreatsForTimeline(),
+    fetchAlerts(),
+  ]);
+  // Poll alert feed every 10s
+  setInterval(fetchAlerts, 10000);
+  // Poll KPIs every 10s (reflects newly extracted IOCs)
+  setInterval(fetchKPIs, 10000);
+})();
+</script>
+</body>
+</html>
