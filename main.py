@@ -3,6 +3,7 @@ import json
 import csv
 import io
 import os
+import time
 from typing import Optional
 
 from fastapi import FastAPI, Query
@@ -27,6 +28,7 @@ from services import (
     generate_summary,
     fit_isolation_forest,
     predict_anomaly,
+    compute_fpr,
     parse_pfsense_log,
     detect_attack_type,
     classify_zone,
@@ -205,15 +207,26 @@ def kpis():
         anomaly_count = conn.execute(
             "SELECT COUNT(*) FROM threats WHERE risk_score > 80"
         ).fetchone()[0]
+
+        # Real MTTA: average extraction duration from perf_log (in milliseconds)
+        mtta_row = conn.execute(
+            "SELECT AVG(duration_ms) FROM perf_log WHERE operation = 'ioc_extract'"
+        ).fetchone()[0]
+        mtta_ms = round(mtta_row or 0, 2)
+
         conn.close()
+
+        # Real FPR: computed from IsolationForest predictions on live DB
+        fpr = compute_fpr("sentinel.db")
+
         return {
             "iocs_processed": iocs_processed,
             "threats_detected": threats_detected,
             "critical_count": critical_count,
             "anomaly_count": anomaly_count,
-            "mtta_seconds": 3.8,
+            "mtta_ms": mtta_ms,
             "sources": ["AbuseIPDB", "AlienVault OTX", "Local ML Engine"],
-            "false_positive_rate": 11.7,
+            "false_positive_rate": fpr,
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -228,6 +241,7 @@ class TextBody(BaseModel):
 @app.post("/api/ioc/extract")
 async def ioc_extract(body: TextBody):
     try:
+        t_start = time.perf_counter()
         regex_iocs = extract_iocs_regex(body.text)
         llm_iocs = await extract_iocs_llm(body.text)
 
@@ -272,6 +286,13 @@ async def ioc_extract(body: TextBody):
                 "is_anomaly": is_anomaly,
             })
 
+        duration_ms = round((time.perf_counter() - t_start) * 1000, 3)
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        conn.execute(
+            "INSERT INTO perf_log (operation, duration_ms, ioc_count, timestamp) VALUES (?,?,?,?)",
+            ("ioc_extract", duration_ms, len(enriched), ts)
+        )
         conn.commit()
         conn.close()
         return enriched
@@ -397,10 +418,10 @@ async def analysis_forecast():
         conn.close()
 
         trend_pct = round(((recent - previous) / max(previous, 1)) * 100)
-        trend_dir = "increasing" if trend_pct > 0 else "decreasing"
+        trend_dir = "increasing" if trend_pct > 0 else ("stable" if trend_pct == 0 else "decreasing")
 
         context = {
-            "threat_volume_trend": f"{trend_dir} ({trend_pct:+d}% vs previous 3 days)",
+            "threat_volume_trend": f"{trend_dir} ({abs(trend_pct)}% vs previous 3 days)",
             "top_targeted_sector": list(by_sector.keys())[0] if by_sector else "unknown",
             "dominant_attack_type": list(by_attack.keys())[0] if by_attack else "unknown",
             "avg_risk_score": round(avg_risk, 1),
@@ -409,20 +430,19 @@ async def analysis_forecast():
             "attack_distribution": by_attack,
         }
 
-        prompt = f"""You are a senior SOC threat intelligence analyst. Based on current threat data, predict what is likely to happen next.
-
-Current threat intelligence:
-{json.dumps(context, indent=2)}
-
-Respond ONLY with this exact JSON structure, no explanation:
-{{
-  "predicted_next_attack": "most likely attack type in next 24h",
-  "predicted_target_sector": "most at-risk sector",
-  "confidence": "HIGH or MEDIUM or LOW",
-  "trend_summary": "one sentence about the current trend",
-  "emerging_threat": "one emerging pattern or new threat vector to watch",
-  "recommended_action": "one immediate defensive action"
-}}"""
+        prompt = (
+            "You are a senior SOC analyst. Based on this threat data, predict what happens next. "
+            "Respond ONLY with JSON, no markdown, no explanation:\n"
+            '{"predicted_next_attack":"...","predicted_target_sector":"...",'
+            '"confidence":"HIGH or MEDIUM or LOW","trend_summary":"one sentence",'
+            '"emerging_threat":"one sentence","recommended_action":"one sentence"}\n\n'
+            f"Top sector: {context['top_targeted_sector']}. "
+            f"Top attack: {context['dominant_attack_type']}. "
+            f"Trend: {context['threat_volume_trend']}. "
+            f"Avg risk: {context['avg_risk_score']}. "
+            f"Top origin: {context['top_origin_country']}. "
+            f"Attack counts: {json.dumps(context['attack_distribution'])}."
+        )
 
         from services import call_llama
         raw = await call_llama(prompt, timeout=30)
@@ -445,7 +465,7 @@ Respond ONLY with this exact JSON structure, no explanation:
             "predicted_next_attack": top_attack,
             "predicted_target_sector": top_sector,
             "confidence": "MEDIUM",
-            "trend_summary": f"Threat volume is {trend_dir} with {trend_pct:+d}% change over last 3 days.",
+            "trend_summary": f"Threat volume is {trend_dir} ({abs(trend_pct)}% change over last 3 days).",
             "emerging_threat": f"Continued {top_attack} campaigns from {top_country[0] if top_country else 'RU'} targeting {top_sector} infrastructure.",
             "recommended_action": f"Strengthen monitoring on {top_sector} sector assets and block known {top_attack} indicators at perimeter.",
             "context": context,

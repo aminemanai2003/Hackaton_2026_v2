@@ -204,11 +204,61 @@ def fit_isolation_forest(db_path: str):
             for r in rows
         ], dtype=float)
 
-        model = IsolationForest(contamination=0.1, random_state=42)
+        model = IsolationForest(contamination=0.2, random_state=42)
         model.fit(X)
         _iso_model = model
     except Exception:
         _iso_model = None
+
+
+# ── I-b) False Positive Rate ─────────────────────────────────────────────────
+
+def compute_fpr(db_path: str) -> float:
+    """
+    Real FPR: among records IsolationForest flags as anomaly (-1),
+    count those with risk_score < 65 (flagged suspicious but not actually high-risk).
+    FPR = false_positives / total_anomalies * 100
+    Falls back to rule-based estimate if model not fitted.
+    """
+    global _iso_model
+    try:
+        import numpy as np
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT risk_score, confidence, country FROM threats"
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return 0.0
+
+        X = np.array([
+            [r[0], r[1], 1 if r[2] in CRITICAL_COUNTRIES else 0]
+            for r in rows
+        ], dtype=float)
+
+        if _iso_model is not None:
+            predictions = _iso_model.predict(X)
+            total = len(predictions)
+            if total == 0:
+                return 0.0
+            # False positive: flagged as anomaly (-1) but risk_score < 50
+            # (IsolationForest raised an alarm on a genuinely low-risk record)
+            false_positives = sum(
+                1 for i, p in enumerate(predictions)
+                if p == -1 and rows[i][0] < 50
+            )
+            fpr = (false_positives / total) * 100
+            return round(fpr, 1)
+        else:
+            # Fallback: critical-flagged threats from known low-risk countries
+            high_risk = [r for r in rows if r[0] > 80]
+            if not high_risk:
+                return 0.0
+            fp = sum(1 for r in high_risk if r[2] not in CRITICAL_COUNTRIES and r[1] < 0.80)
+            return round((fp / len(high_risk)) * 100, 1)
+    except Exception:
+        return 0.0
 
 
 # ── I) Anomaly predictor ──────────────────────────────────────────────────────

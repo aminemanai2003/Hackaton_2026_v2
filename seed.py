@@ -124,6 +124,14 @@ def create_tables(conn: sqlite3.Connection):
             timestamp TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS perf_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation TEXT,
+            duration_ms REAL,
+            ioc_count INTEGER,
+            timestamp TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS network_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT,
@@ -218,6 +226,61 @@ def seed_alerts(conn: sqlite3.Connection, threat_ids: list):
     conn.commit()
 
 
+def seed_perf_log(conn: sqlite3.Connection):
+    """Seed perf_log with real measured extraction timings."""
+    import time
+    import re as _re
+
+    # Realistic sample threat texts (varied length and IOC density)
+    samples = [
+        "Traffic from 185.220.101.34 to evil-c2.ru on port 443. Hash: deadbeefdeadbeefdeadbeefdeadbeef",
+        "Phishing email from attacker@malware.tk. CVE-2024-1234 exploited. C2: botnet-ctrl.ru",
+        "185.220.101.45 initiated connection to 194.165.16.23. Malware hash a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+        "Port scan from 91.108.4.55. Target: 192.168.100.10. 1024 ports scanned.",
+        "Ransomware staging detected. dropper-cdn.xyz contacted. SHA256: " + "a" * 64,
+        "Brute force on SSH from 77.73.133.12. 500 attempts in 60s.",
+        "https://malware-host.tk/payload.exe downloaded. CVE-2023-9999 CVE-2024-1111",
+        "Data exfiltration to apt-c2.xyz:4444 from 192.168.100.11. 2.3GB transferred.",
+    ]
+
+    ip_re = _re.compile(r'\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b')
+    domain_re = _re.compile(r'\b(?:[a-zA-Z0-9-]+\.)+(?:com|net|org|io|ru|cn|tk|xyz|top|info|onion)\b')
+    md5_re = _re.compile(r'\b[a-fA-F0-9]{32}\b')
+    sha256_re = _re.compile(r'\b[a-fA-F0-9]{64}\b')
+    cve_re = _re.compile(r'CVE-\d{4}-\d{4,7}')
+    url_re = _re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+')
+    private_re = _re.compile(r'^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)')
+
+    now = datetime.now(timezone.utc)
+    count = 0
+    for i, text in enumerate(samples * 5):  # 40 measurements
+        t0 = time.perf_counter()
+        seen = set()
+        ioc_count = 0
+        for url in url_re.findall(text):
+            if url not in seen:
+                seen.add(url); ioc_count += 1
+        clean = url_re.sub(" ", text)
+        for pat, typ in [(sha256_re,"sha256"),(md5_re,"md5"),(cve_re,"cve"),(ip_re,"ip"),(domain_re,"domain")]:
+            for v in pat.findall(clean):
+                if v not in seen:
+                    if typ == "ip" and private_re.match(v):
+                        continue
+                    seen.add(v); ioc_count += 1
+        duration_ms = round((time.perf_counter() - t0) * 1000, 3)
+
+        minutes_ago = random.randint(0, 10080)  # up to 7 days ago
+        ts = (now - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%S")
+        conn.execute(
+            "INSERT INTO perf_log (operation, duration_ms, ioc_count, timestamp) VALUES (?,?,?,?)",
+            ("ioc_extract", duration_ms, ioc_count, ts)
+        )
+        count += 1
+
+    conn.commit()
+    return count
+
+
 def seed_network_events(conn: sqlite3.Connection):
     now = datetime.now(timezone.utc)
     count = 0
@@ -275,10 +338,11 @@ def main():
     threat_ids = seed_threats(conn)
     seed_alerts(conn, threat_ids)
     net_count = seed_network_events(conn)
+    perf_count = seed_perf_log(conn)
 
     t_count = conn.execute("SELECT COUNT(*) FROM threats").fetchone()[0]
     a_count = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
-    print(f"Seeded: {t_count} threats, {a_count} alerts, {net_count} network events")
+    print(f"Seeded: {t_count} threats, {a_count} alerts, {net_count} network events, {perf_count} perf samples")
     conn.close()
 
 

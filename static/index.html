@@ -388,7 +388,7 @@
   </div>
   <div class="kpi-box">
     <div class="kpi-value" id="kpi-mtta">—</div>
-    <div class="kpi-label">MTTA (seconds)</div>
+    <div class="kpi-label">MTTA (ms)</div>
   </div>
   <div class="kpi-box">
     <div class="kpi-value" id="kpi-anomalies" style="color:var(--red)">—</div>
@@ -676,8 +676,15 @@ function sevColor(sev) {
 
 function formatTime(iso) {
   if (!iso) return '—';
-  const d = new Date(iso.replace('T', ' ') + 'Z');
-  return isNaN(d) ? iso.substring(0, 16) : d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  try {
+    const normalized = iso.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1');
+    const withZ = normalized.endsWith('Z') ? normalized : normalized + 'Z';
+    const d = new Date(withZ);
+    if (isNaN(d)) return iso.substring(0, 16);
+    return d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12: false });
+  } catch(e) {
+    return iso.substring(0, 16);
+  }
 }
 
 function animateCount(el, target) {
@@ -715,7 +722,7 @@ async function fetchKPIs() {
     animateCount(document.getElementById('kpi-iocs'), data.iocs_processed || 0);
     animateCount(document.getElementById('kpi-threats'), data.threats_detected || 0);
     animateCount(document.getElementById('kpi-critical'), data.critical_count || 0);
-    document.getElementById('kpi-mtta').textContent = (data.mtta_seconds || 3.8) + 's';
+    document.getElementById('kpi-mtta').textContent = (data.mtta_ms || 0) + 'ms';
     animateCount(document.getElementById('kpi-anomalies'), data.anomaly_count || 0);
     document.getElementById('kpi-fpr').textContent = (data.false_positive_rate || 0) + '%';
   } catch(e) {
@@ -760,12 +767,16 @@ function buildTimelineChart(threats) {
     counts[key] = 0;
   }
   threats.forEach(t => {
-    if (t.first_seen) {
-      // Normalize: treat stored datetime as UTC regardless of Z suffix
-      const raw = t.first_seen.includes('T') ? t.first_seen : t.first_seen + 'T00:00:00';
-      const key = new Date(raw + (raw.endsWith('Z') ? '' : 'Z')).toISOString().substring(0, 10);
+    if (!t.first_seen) return;
+    try {
+      // Handle both "2026-04-26T..." and "2026-04-26 ..." (SQLite datetime() format)
+      const iso = t.first_seen.replace(' ', 'T');
+      // Trim microseconds to milliseconds so JS Date can parse it
+      const trimmed = iso.replace(/(\.\d{3})\d+/, '$1');
+      const withZ = trimmed.endsWith('Z') ? trimmed : trimmed + 'Z';
+      const key = new Date(withZ).toISOString().substring(0, 10);
       if (key in counts) counts[key]++;
-    }
+    } catch(e) { /* skip unparseable dates */ }
   });
   const data = Object.values(counts);
 
@@ -1177,12 +1188,12 @@ document.getElementById('ip-input').addEventListener('keydown', e => {
 let attackChart = null;
 
 const EVENT_COLORS = {
-  dos:             'var(--red)',
+  dos:             '#ff2d55',
   ddos:            '#ff0055',
-  sql_injection:   'var(--orange)',
-  port_scan:       'var(--blue)',
+  sql_injection:   '#ff6b35',
+  port_scan:       '#00b4ff',
   brute_force:     '#c084fc',
-  lateral_movement:'var(--green)',
+  lateral_movement:'#00ff88',
 };
 
 async function loadNetworkTab() {
@@ -1207,7 +1218,7 @@ async function fetchNetworkStats() {
 function buildAttackChart(byType) {
   const labels = Object.keys(byType);
   const data   = Object.values(byType);
-  const colors = labels.map(l => EVENT_COLORS[l] || 'var(--muted)');
+  const colors = labels.map(l => EVENT_COLORS[l] || '#64748b');
 
   const ctx = document.getElementById('chart-attacks').getContext('2d');
   if (attackChart) attackChart.destroy();
